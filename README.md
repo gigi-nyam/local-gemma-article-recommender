@@ -1,6 +1,6 @@
 # ローカルGemmaを使用したWeb記事推薦システム
 
-Gemma 2モデルをローカル環境（Ollama）で実行し、Web記事推薦を行うシステムです。クラウドAPIに依存せず、完全にローカルで動作します。
+Gemma 3モデルをローカル環境（Ollama）で実行し、Web記事推薦を行うシステムです。クラウドAPIに依存せず、完全にローカルで動作します。
 
 ## 概要
 
@@ -45,8 +45,8 @@ Gemma 2モデルをローカル環境（Ollama）で実行し、Web記事推薦�
 | モデル | 最小RAM | 推奨RAM | GPU |
 |--------|---------|---------|-----|
 | gemma3:4b | 4GB | 8GB | 不要 |
-| gemma2:9b | 8GB | 16GB | 推奨 |
-| gemma2:27b | 16GB | 32GB | 必須 |
+| gemma3:9b | 8GB | 16GB | 推奨 |
+| gemma3:27b | 16GB | 32GB | 必須 |
 
 ### ソフトウェア要件
 
@@ -66,7 +66,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 # https://ollama.com/download からインストーラーをダウンロード
 ```
 
-### 2. Gemma 2モデルのダウンロード
+### 2. Gemma 3モデルのダウンロード
 
 ```bash
 # 軽量版（1Bパラメータ）
@@ -103,7 +103,7 @@ from sample_articles import SAMPLE_ARTICLES
 recommender = LocalArticleRecommenderSystem(
     vector_search_top_k=10,
     llm_recommendation_top_k=3,
-    gemma_model="gemma2:2b"
+    gemma_model="gemma3:4b"
 )
 
 # 記事データを読み込み
@@ -156,7 +156,7 @@ article_recommender/
 **1. より大きなモデルを使用（精度向上）**
 ```python
 recommender = LocalArticleRecommenderSystem(
-    gemma_model="gemma2:9b"  # より高精度
+    gemma_model="gemma3:27b"  # より高精度
 )
 ```
 
@@ -219,7 +219,7 @@ Gemmaが不正なJSONを生成する場合があります。以下の対策が�
 
 ```bash
 # より小さいモデルを使用
-ollama pull gemma3:4b
+ollama pull gemma3:1b
 
 # または候補記事数を減らす
 recommender = LocalArticleRecommenderSystem(
@@ -337,7 +337,7 @@ def recommend_async(user_query):
 ## 参考資料
 
 - [Ollama公式サイト](https://ollama.com/)
-- [Gemma 2モデル](https://ai.google.dev/gemma)
+- [Gemma 3モデル](https://ai.google.dev/gemma)
 - [Ollama API ドキュメント](https://github.com/ollama/ollama/blob/main/docs/api.md)
 
 ## まとめ
