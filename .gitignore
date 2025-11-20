@@ -32,3 +32,6 @@ Thumbs.db
 # 一時ファイル
 *.tmp
 *.bak
+
+# 環境変数
+.env

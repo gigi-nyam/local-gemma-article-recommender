@@ -1,10 +1,10 @@
-# ローカルGemmaを使用したWeb記事推薦システム
+# マルチLLMプロバイダー対応 Web記事推薦システム
 
-Gemma 3モデルをローカル環境（Ollama）で実行し、Web記事推薦を行うシステムです。クラウドAPIに依存せず、完全にローカルで動作します。
+複数のLLMプロバイダー（Ollama (ローカル)、Google Gemini、OpenAI）に対応した、Web記事推薦システムです。
 
 ## 概要
 
-本システムは、**Embedding Vector検索**と**ローカルGemma推薦**を組み合わせた2段階推薦アーキテクチャを採用しています。
+本システムは、**Embedding Vector検索**と**LLM推薦**を組み合わせた2段階推薦アーキテクチャを採用しています。
 
 ### システム構成
 
@@ -15,49 +15,67 @@ Gemma 3モデルをローカル環境（Ollama）で実行し、Web記事推薦�
     - 高速な類似度計算
     - 候補を10-100件に絞り込み
     ↓
-[フェーズ2] ローカルGemma推薦
-    - Ollama経由でGemma 3を実行
+[フェーズ2] LLM推薦
+    - Ollama/Gemini/OpenAIで推論
     - 「ついクリックしたくなる」記事を3件選択
     ↓
 推薦結果
 ```
 
-## 主な特徴
+## 対応LLMプロバイダー
 
-### ✅ 完全ローカル実行
-- インターネット接続不要（モデルダウンロード後）
-- APIキー不要
-- プライバシー保護
+### 1. Ollama (ローカル実行)
+- **特徴**: 完全ローカル、APIキー不要、プライバシー保護
+- **コスト**: 無料（電気代のみ）
+- **速度**: 30-60秒（CPU）、5-10秒（GPU）
+- **対応モデル**: gemma3:1b, gemma3:4b, gemma3:12b など
 
-### ✅ 低コスト
-- クラウドAPIの使用料金なし
-- 自前のハードウェアで実行
+### 2. Google Gemini
+- **特徴**: 高速、高精度
+- **コスト**: 従量課金（無料枠あり）
+- **速度**: 3-5秒
+- **対応モデル**: gemini-1.5-flash, gemini-1.5-pro など
 
-### ✅ カスタマイズ可能
-- プロンプトの自由な調整
-- モデルサイズの選択（1B, 9B, 12B）
-- パラメータのチューニング
-
-## 必要な環境
-
-### ハードウェア要件
-
-| モデル | 最小RAM | 推奨RAM | GPU |
-|--------|---------|---------|-----|
-| gemma3:1b | 4GB | 8GB | 不要 |
-| gemma3:4b | 8GB | 16GB | 推奨 |
-| gemma3:12b | 32GB | 48GB | 必須 |
-
-### ソフトウェア要件
-
-- Python 3.11+
-- Ollama 0.12+
-- Linux/macOS/Windows
+### 3. OpenAI
+- **特徴**: 高精度、豊富なモデル
+- **コスト**: 従量課金
+- **速度**: 3-5秒
+- **対応モデル**: gpt-4o, gpt-4o, gpt-4 など
 
 ## セットアップ
 
-### 1. Ollamaのインストール
+### 1. 環境変数の設定
 
+`.env`ファイルを作成し、使用するプロバイダーに応じて設定します。
+
+```bash
+# .envファイルの例をコピー
+cp .env.example .env
+```
+
+**.env ファイルの設定例**:
+
+```bash
+# LLMプロバイダーの選択
+# Options: ollama, gemini, openai
+LLM_PROVIDER=ollama
+
+# Ollama設定 (LLM_PROVIDER=ollama の場合)
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=gemma3:4b
+
+# Gemini設定 (LLM_PROVIDER=gemini の場合)
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# OpenAI設定 (LLM_PROVIDER=openai の場合)
+OPENAI_API_KEY=your_openai_api_key_here
+```
+
+### 2. Ollama使用時の追加セットアップ
+
+Ollamaを使用する場合のみ、以下のセットアップが必要です。
+
+**Ollamaのインストール**:
 ```bash
 # Linux/macOS
 curl -fsSL https://ollama.com/install.sh | sh
@@ -66,8 +84,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 # https://ollama.com/download からインストーラーをダウンロード
 ```
 
-### 2. Gemma 3モデルのダウンロード
-
+**モデルのダウンロード**:
 ```bash
 # 軽量版（1Bパラメータ）
 ollama pull gemma3:1b
@@ -88,8 +105,13 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # 依存パッケージをインストール
 pip install -r requirements.txt
-pip install requests  # Ollama API用
 ```
+
+**requirements.txt に含まれるパッケージ**:
+- `python-dotenv`: 環境変数管理
+- `google-generativeai`: Gemini API（オプション）
+- `openai`: OpenAI API（オプション）
+- その他の基本パッケージ
 
 ## 使用方法
 
@@ -99,11 +121,10 @@ pip install requests  # Ollama API用
 from article_recommender import LocalArticleRecommenderSystem
 from sample_articles import SAMPLE_ARTICLES
 
-# システムを初期化
+# システムを初期化（環境変数から設定を読み込み）
 recommender = LocalArticleRecommenderSystem(
     vector_search_top_k=10,
-    llm_recommendation_top_k=3,
-    gemma_model="gemma3:4b"
+    llm_recommendation_top_k=3
 )
 
 # 記事データを読み込み
@@ -117,14 +138,38 @@ for rec in result.recommendations:
     print(f"{rec.title} (スコア: {rec.clickbait_score})")
 ```
 
+### プロバイダーを直接指定
+
+環境変数の代わりに、コード内で直接プロバイダーを指定することもできます。
+
+```python
+# Geminiを使用
+recommender = LocalArticleRecommenderSystem(
+    llm_provider="gemini",
+    llm_model="gemini-1.5-flash"
+)
+
+# OpenAIを使用
+recommender = LocalArticleRecommenderSystem(
+    llm_provider="openai",
+    llm_model="gpt-4o"
+)
+
+# Ollamaを使用
+recommender = LocalArticleRecommenderSystem(
+    llm_provider="ollama",
+    llm_model="gemma3:4b"
+)
+```
+
 ### デモの実行
 
 ```bash
-# 完全なデモを実行
+# 完全なデモを実行（.envファイルの設定を使用）
 python article_recommender.py
 
 # 個別コンポーネントのテスト
-python llm_recommender.py  # ローカルGemma推薦のみ
+python llm_recommender.py  # LLM推薦のみ
 python vector_search.py    # ベクトル検索のみ
 ```
 
@@ -133,56 +178,38 @@ python vector_search.py    # ベクトル検索のみ
 ```
 article_recommender/
 ├── README.md                  # このファイル
+├── .env.example               # 環境変数テンプレート
+├── .env                       # 環境変数設定（自分で作成）
 ├── article_recommender.py     # 統合推薦システム
-├── llm_recommender.py         # ローカルGemma推薦エンジン
+├── llm_recommender.py         # マルチLLMプロバイダー対応推薦エンジン
 ├── vector_search.py           # ベクトル検索エンジン
 ├── sample_articles.py         # テスト用記事データ
 ├── requirements.txt           # 依存パッケージ
 └── .gitignore                 # Git除外設定
 ```
 
-## パフォーマンス
+## プロバイダー比較
 
-### 処理時間（gemma3:4b, CPU実行）
+| 項目 | Ollama (ローカル) | Google Gemini | OpenAI |
+|------|-----------------|---------------|--------|
+| 処理速度 | 30-60秒（CPU）<br>5-10秒（GPU） | 3-5秒 | 3-5秒 |
+| コスト | 無料（電気代のみ） | 従量課金（無料枠あり） | 従量課金 |
+| プライバシー | 完全ローカル | データ送信あり | データ送信あり |
+| インターネット | 不要 | 必要 | 必要 |
+| セットアップ | やや複雑 | 簡単（APIキーのみ） | 簡単（APIキーのみ） |
+| 精度 | 中〜高 | 高 | 高 |
 
-| フェーズ | 処理時間 |
-|---------|---------|
-| ベクトル検索（20件） | 0.001-0.005秒 |
-| Gemma推薦（10件→3件） | 30-60秒 |
-| **合計** | **約30-60秒** |
+## APIキーの取得方法
 
-### パフォーマンス改善のヒント
+### Google Gemini API
+1. [Google AI Studio](https://makersuite.google.com/app/apikey) にアクセス
+2. 「Get API Key」をクリック
+3. APIキーをコピーして`.env`ファイルに設定
 
-**1. より大きなモデルを使用（精度向上）**
-```python
-recommender = LocalArticleRecommenderSystem(
-    gemma_model="gemma3:12b"  # より高精度
-)
-```
-
-**2. 候補記事数を減らす（速度向上）**
-```python
-recommender = LocalArticleRecommenderSystem(
-    vector_search_top_k=5,  # 10→5に削減
-)
-```
-
-**3. GPU使用（大幅な高速化）**
-```bash
-# NVIDIA GPUがある場合、Ollamaが自動的に使用
-# 処理時間が1/5〜1/10に短縮
-```
-
-## クラウド版との比較
-
-| 項目 | ローカル版（Gemma） | クラウド版（Gemini） |
-|------|-------------------|-------------------|
-| 処理速度 | 30-60秒 | 7-8秒 |
-| コスト | 無料（電気代のみ） | 従量課金 |
-| プライバシー | 完全ローカル | データ送信あり |
-| インターネット | 不要 | 必要 |
-| セットアップ | やや複雑 | 簡単 |
-| 精度 | 中〜高 | 高 |
+### OpenAI API
+1. [OpenAI Platform](https://platform.openai.com/api-keys) にアクセス
+2. 「Create new secret key」をクリック
+3. APIキーをコピーして`.env`ファイルに設定
 
 ## トラブルシューティング
 
@@ -199,47 +226,21 @@ sudo systemctl restart ollama
 ollama serve
 ```
 
+### APIキーエラー
+
+```python
+# エラーメッセージ例
+ValueError: GEMINI_API_KEYが設定されていません
+```
+
+**対処法**: `.env`ファイルに正しいAPIキーが設定されているか確認してください。
+
 ### JSONパースエラーが頻発する
 
 Gemmaが不正なJSONを生成する場合があります。以下の対策があります：
 
-1. **プロンプトを改善**（既に実装済み）
-2. **より大きなモデルを使用**（gemma2:9b以上）
-3. **温度パラメータを下げる**
-
-```python
-# llm_recommender.py の _call_ollama_api を編集
-"options": {
-    "temperature": 0.3,  # 0.7 → 0.3に変更
-    "num_predict": 1000
-}
-```
-
-### メモリ不足エラー
-
-```bash
-# より小さいモデルを使用
-ollama pull gemma3:1b
-
-# または候補記事数を減らす
-recommender = LocalArticleRecommenderSystem(
-    vector_search_top_k=5
-)
-```
-
-### 処理が遅すぎる
-
-```bash
-# GPUドライバーをインストール（NVIDIA）
-# Ubuntu/Debian
-sudo apt install nvidia-driver-535
-
-# Ollamaを再起動してGPUを認識
-sudo systemctl restart ollama
-
-# GPU使用を確認
-nvidia-smi
-```
+1. **より大きなモデルを使用**（gemma3:12b以上）
+2. **GeminiまたはOpenAIに切り替え**（JSON生成が安定）
 
 ## 実運用への展開
 
@@ -280,7 +281,7 @@ if __name__ == '__main__':
 
 ### バックグラウンドワーカーとして実行
 
-推論時間が長いため、非同期処理が推奨されます。
+推論時間が長い場合、非同期処理が推奨されます。
 
 ```python
 from celery import Celery
@@ -304,47 +305,22 @@ def recommend_async(user_query):
     }
 ```
 
-## 今後の改善
-
-### 短期的な改善
-
-1. **JSONパース精度の向上**
-   - より厳密な正規表現パターン
-   - フォールバック処理の強化
-
-2. **バッチ処理の実装**
-   - 複数クエリの並列処理
-   - スループットの向上
-
-3. **キャッシング機能**
-   - 頻繁なクエリの結果をキャッシュ
-   - レスポンス時間の短縮
-
-### 長期的な展望
-
-1. **ファインチューニング**
-   - 記事推薦に特化したモデル
-   - 精度とJSON出力の安定性向上
-
-2. **マルチモーダル対応**
-   - 画像・動画の考慮
-   - Gemma 2の視覚機能活用
-
-3. **分散実行**
-   - 複数サーバーでの負荷分散
-   - 高可用性の実現
-
 ## 参考資料
 
 - [Ollama公式サイト](https://ollama.com/)
-- [Gemma 3モデル](https://ai.google.dev/gemma)
+- [Google Gemini API](https://ai.google.dev/gemma)
+- [OpenAI API](https://platform.openai.com/docs/)
 - [Ollama API ドキュメント](https://github.com/ollama/ollama/blob/main/docs/api.md)
 
 ## まとめ
 
-ローカルGemma版は、**プライバシー**と**コスト**を重視する場合に最適です。処理速度はクラウド版に劣りますが、完全にローカルで動作し、APIキーや使用料金が不要です。
+本システムは、3つのLLMプロバイダーに対応し、ニーズに応じて柔軟に選択できます：
 
-実運用では、非同期処理やキャッシングと組み合わせることで、実用的なレスポンス時間を実現できます。
+- **Ollama**: プライバシー重視、コスト削減、オフライン動作
+- **Gemini**: 高速・高精度、無料枠で開始可能
+- **OpenAI**: 最高精度、豊富なモデル選択肢
+
+環境変数を変更するだけで簡単にプロバイダーを切り替えられます。
 
 ## ライセンス
 
@@ -352,4 +328,4 @@ MIT License
 
 ## 作成日
 
-2025年11月18日
+2025年11月20日

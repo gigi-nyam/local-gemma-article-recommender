@@ -119,7 +119,7 @@ from sample_articles import SAMPLE_ARTICLES
 recommender = ArticleRecommenderSystem(
     vector_search_top_k=100,
     llm_recommendation_top_k=3,
-    llm_model="gemini-2.5-flash"
+    llm_model="gemini-3-"
 )
 
 # 記事データを読み込み

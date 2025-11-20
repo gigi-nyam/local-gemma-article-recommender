@@ -9,3 +9,12 @@ requests>=2.31.0
 
 # データ検証
 pydantic>=2.0.0
+
+# 環境変数管理
+python-dotenv>=1.0.0
+
+# Google Gemini API (オプション)
+google-generativeai>=0.3.0
+
+# OpenAI API (オプション)
+openai>=1.0.0

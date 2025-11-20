@@ -16,7 +16,8 @@ class LocalArticleRecommenderSystem:
         self,
         vector_search_top_k: int = 100,
         llm_recommendation_top_k: int = 3,
-        gemma_model: str = "gemma2:2b"
+        llm_provider: str = None,
+        llm_model: str = None
     ):
         """
         初期化
@@ -24,19 +25,19 @@ class LocalArticleRecommenderSystem:
         Args:
             vector_search_top_k: ベクトル検索で絞り込む件数
             llm_recommendation_top_k: LLMで推薦する件数
-            gemma_model: 使用するGemmaモデル
+            llm_provider: LLMプロバイダー ("ollama", "gemini", "openai")。Noneの場合は環境変数から取得
+            llm_model: 使用するモデル名。Noneの場合は環境変数またはデフォルト値を使用
         """
         self.vector_search_top_k = vector_search_top_k
         self.llm_recommendation_top_k = llm_recommendation_top_k
         
         # コンポーネントを初期化
         self.vector_search = ArticleVectorSearch()
-        self.llm_recommender = LocalGemmaRecommender(model=gemma_model)
+        self.llm_recommender = LocalGemmaRecommender(provider=llm_provider, model=llm_model)
         
-        print(f"✓ ローカルGemma記事推薦システムを初期化しました")
+        print(f"✓ 記事推薦システムを初期化しました")
         print(f"  ベクトル検索: 上位{vector_search_top_k}件")
         print(f"  LLM推薦: 上位{llm_recommendation_top_k}件")
-        print(f"  Gemmaモデル: {gemma_model}")
     
     def fit(self, articles: List[Dict]) -> None:
         """
@@ -136,22 +137,21 @@ class LocalArticleRecommenderSystem:
 
 
 def demo_local_recommender_system():
-    """ローカルGemma推薦システムの完全デモ"""
+    """マルチLLM推薦システムの完全デモ"""
     from sample_articles import SAMPLE_ARTICLES
     
     print("=" * 60)
-    print("ローカルGemma記事推薦システム - 完全デモ")
+    print("マルチLLM記事推薦システム - 完全デモ")
     print("=" * 60)
     print("システム構成:")
     print("  1. Embedding Vector検索: TF-IDFベースの類似度検索")
-    print("  2. LLM推薦: ローカルGemma（Ollama）による最終選択")
+    print("  2. LLM推薦: Ollama/Gemini/OpenAIによる最終選択")
     print()
     
-    # システムを初期化
+    # システムを初期化 (環境変数から設定を読み込み)
     recommender = LocalArticleRecommenderSystem(
         vector_search_top_k=10,  # デモ用に少なめ
-        llm_recommendation_top_k=3,
-        gemma_model="gemma3:4b"
+        llm_recommendation_top_k=3
     )
     
     # 記事データを読み込み

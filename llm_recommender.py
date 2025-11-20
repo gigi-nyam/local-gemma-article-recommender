@@ -1,13 +1,19 @@
 """
-ローカルGemmaによるLLM推薦ロジック（HTTP API版）
-Ollama HTTP APIを使用してGemmaモデルをローカルで実行
+マルチLLMプロバイダー対応の記事推薦ロジック
+Ollama (ローカル)、Gemini、OpenAI に対応
 """
 
+import os
 import requests
 import json
 import re
-from typing import List, Dict
+from typing import List, Dict, Optional
 from pydantic import BaseModel
+from dotenv import load_dotenv
+from abc import ABC, abstractmethod
+
+# .envファイルを読み込み
+load_dotenv()
 
 
 class ArticleRecommendation(BaseModel):
@@ -24,21 +30,19 @@ class RecommendationResult(BaseModel):
     reasoning: str
 
 
-class LocalGemmaRecommender:
-    """ローカルGemmaを使用した記事推薦エンジン（HTTP API版）"""
+class BaseLLMProvider(ABC):
+    """LLMプロバイダーの基底クラス"""
     
-    def __init__(
-        self, 
-        model: str = "gemma3:4b",
-        base_url: str = "http://localhost:11434"
-    ):
-        """
-        初期化
-        
-        Args:
-            model: 使用するOllamaモデル名（gemma3:4b推奨）
-            base_url: Ollama APIのベースURL
-        """
+    @abstractmethod
+    def generate(self, prompt: str) -> str:
+        """プロンプトからテキストを生成"""
+        pass
+
+
+class OllamaProvider(BaseLLMProvider):
+    """Ollama API プロバイダー (ローカルモデル)"""
+    
+    def __init__(self, model: str, base_url: str):
         self.model = model
         self.base_url = base_url
         
@@ -51,9 +55,146 @@ class LocalGemmaRecommender:
                     print(f"警告: {self.model}がインストールされていません")
                     print(f"実行してください: ollama pull {self.model}")
             else:
-                print(f"警告: Ollama APIに接続できません（{base_url}）")
+                print(f"警告: Ollama APIに接続できません({base_url})")
         except Exception as e:
             print(f"Ollamaの確認に失敗: {e}")
+    
+    def generate(self, prompt: str, timeout: int = 180) -> str:
+        url = f"{self.base_url}/api/generate"
+        
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.7,
+                "num_predict": 1000
+            }
+        }
+        
+        response = requests.post(url, json=payload, timeout=timeout)
+        
+        if response.status_code != 200:
+            raise RuntimeError(f"Ollama API エラー: {response.status_code} - {response.text}")
+        
+        result = response.json()
+        return result.get('response', '')
+
+
+class GeminiProvider(BaseLLMProvider):
+    """Google Gemini API プロバイダー"""
+    
+    def __init__(self, api_key: str, model: str = "gemini-3-pro-preview"):
+        self.api_key = api_key
+        self.model = model
+        
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            self.client = genai.GenerativeModel(model)
+            print(f"✓ Gemini API接続成功 (モデル: {model})")
+        except ImportError:
+            raise ImportError("google-generativeaiパッケージが必要です: pip install google-generativeai")
+        except Exception as e:
+            print(f"警告: Gemini API初期化エラー: {e}")
+    
+    def generate(self, prompt: str, timeout: int = 180) -> str:
+        try:
+            response = self.client.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            raise RuntimeError(f"Gemini API エラー: {e}")
+
+
+class OpenAIProvider(BaseLLMProvider):
+    """OpenAI API プロバイダー"""
+    
+    def __init__(self, api_key: str, model: str = "gpt-4o"):
+        self.api_key = api_key
+        self.model = model
+        
+        try:
+            from openai import OpenAI
+            self.client = OpenAI(api_key=api_key)
+            print(f"✓ OpenAI API接続成功 (モデル: {model})")
+        except ImportError:
+            raise ImportError("openaiパッケージが必要です: pip install openai")
+        except Exception as e:
+            print(f"警告: OpenAI API初期化エラー: {e}")
+    
+    def generate(self, prompt: str, timeout: int = 180) -> str:
+        try:
+            # GPT-5系では max_completion_tokens、GPT-4系以前では max_tokens を使用
+            params = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": "あなたは記事推薦の専門家です。"},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7
+            }
+            
+            # モデル名でパラメータを切り替え
+            if self.model.startswith("gpt-5") or self.model.startswith("o1") or self.model.startswith("o3"):
+                params["max_completion_tokens"] = 1000
+            else:
+                params["max_tokens"] = 1000
+            
+            response = self.client.chat.completions.create(**params)
+            return response.choices[0].message.content
+        except Exception as e:
+            raise RuntimeError(f"OpenAI API エラー: {e}")
+
+
+class LocalGemmaRecommender:
+    """マルチLLMプロバイダー対応の記事推薦エンジン"""
+    
+    def __init__(
+        self, 
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None
+    ):
+        """
+        初期化
+        
+        Args:
+            provider: LLMプロバイダー ("ollama", "gemini", "openai")。Noneの場合は環境変数から取得
+            model: 使用するモデル名。Noneの場合は環境変数またはデフォルト値を使用
+            api_key: APIキー。Noneの場合は環境変数から取得
+            base_url: Ollama APIのベースURL (Ollamaの場合のみ)
+        """
+        # 環境変数から設定を取得
+        provider = provider or os.getenv("LLM_PROVIDER", "ollama")
+        
+        self.provider_name = provider
+        
+        # プロバイダーに応じてLLMクライアントを初期化
+        if provider == "ollama":
+            model = model or os.getenv("OLLAMA_MODEL", "gemma3:4b")
+            base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            self.llm_provider = OllamaProvider(model=model, base_url=base_url)
+            print(f"✓ Ollamaプロバイダーを使用 (モデル: {model})")
+            
+        elif provider == "gemini":
+            api_key = api_key or os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                raise ValueError("GEMINI_API_KEYが設定されていません")
+            model = model or "gemini-3-pro-preview"
+            self.llm_provider = GeminiProvider(api_key=api_key, model=model)
+            print(f"✓ Geminiプロバイダーを使用 (モデル: {model})")
+            
+        elif provider == "openai":
+            api_key = api_key or os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("OPENAI_API_KEYが設定されていません")
+            model = model or os.getenv("OPENAI_MODEL", "gpt-5.1")
+            self.llm_provider = OpenAIProvider(api_key=api_key, model=model)
+            print(f"✓ OpenAIプロバイダーを使用 (モデル: {model})")
+            
+        else:
+            raise ValueError(f"未対応のプロバイダー: {provider}")
     
     def recommend_articles(
         self,
@@ -78,9 +219,9 @@ class LocalGemmaRecommender:
         # プロンプトを構築
         prompt = self._build_prompt(user_query, limited_candidates, top_k)
         
-        # Ollama HTTP APIでローカル推論を実行
+        # LLM APIで推論を実行
         try:
-            response_text = self._call_ollama_api(prompt)
+            response_text = self.llm_provider.generate(prompt)
             
             # レスポンスをパース
             result = self._parse_response(response_text, limited_candidates)
@@ -91,37 +232,6 @@ class LocalGemmaRecommender:
             print(f"エラーが発生しました: {e}")
             # フォールバック: 最初のtop_k件を返す
             return self._fallback_recommendation(limited_candidates, top_k)
-    
-    def _call_ollama_api(self, prompt: str, timeout: int = 180) -> str:
-        """
-        Ollama HTTP APIを呼び出してレスポンスを取得
-        
-        Args:
-            prompt: 入力プロンプト
-            timeout: タイムアウト時間（秒）
-            
-        Returns:
-            モデルのレスポンス
-        """
-        url = f"{self.base_url}/api/generate"
-        
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": 0.7,
-                "num_predict": 1000
-            }
-        }
-        
-        response = requests.post(url, json=payload, timeout=timeout)
-        
-        if response.status_code != 200:
-            raise RuntimeError(f"Ollama API エラー: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        return result.get('response', '')
     
     def _build_prompt(
         self,
@@ -245,16 +355,16 @@ JSON以外は出力しないでください。"""
 
 
 def demo_local_gemma_recommender():
-    """ローカルGemma推薦のデモンストレーション"""
+    """マルチLLM推薦のデモンストレーション"""
     from sample_articles import SAMPLE_ARTICLES
     
     print("=" * 60)
-    print("ローカルGemma推薦デモ（Ollama HTTP API使用）")
+    print("マルチLLM記事推薦デモ")
     print("=" * 60)
     print()
     
-    # 推薦エンジンを初期化
-    recommender = LocalGemmaRecommender(model="gemma3:4b")
+    # 推薦エンジンを初期化 (環境変数から設定を読み込み)
+    recommender = LocalGemmaRecommender()
     
     # テストクエリ
     test_queries = [
@@ -270,7 +380,7 @@ def demo_local_gemma_recommender():
         candidate_articles = SAMPLE_ARTICLES
         
         print(f"候補記事数: {len(candidate_articles)}件（上位10件に絞り込み）")
-        print("ローカルGemmaで「ついクリックしたくなる」記事を3件選択中...")
+        print(f"{recommender.provider_name}で「ついクリックしたくなる」記事を3件選択中...")
         print()
         
         # 推薦を実行
