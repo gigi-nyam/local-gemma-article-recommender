@@ -16,7 +16,7 @@ Gemma 3モデルをローカル環境（Ollama）で実行し、Web記事推薦�
     - 候補を10-100件に絞り込み
     ↓
 [フェーズ2] ローカルGemma推薦
-    - Ollama経由でGemma 2を実行
+    - Ollama経由でGemma 3を実行
     - 「ついクリックしたくなる」記事を3件選択
     ↓
 推薦結果
@@ -35,7 +35,7 @@ Gemma 3モデルをローカル環境（Ollama）で実行し、Web記事推薦�
 
 ### ✅ カスタマイズ可能
 - プロンプトの自由な調整
-- モデルサイズの選択（2B, 9B, 27B）
+- モデルサイズの選択（1B, 9B, 12B）
 - パラメータのチューニング
 
 ## 必要な環境
@@ -44,9 +44,9 @@ Gemma 3モデルをローカル環境（Ollama）で実行し、Web記事推薦�
 
 | モデル | 最小RAM | 推奨RAM | GPU |
 |--------|---------|---------|-----|
-| gemma3:4b | 4GB | 8GB | 不要 |
-| gemma3:9b | 8GB | 16GB | 推奨 |
-| gemma3:27b | 16GB | 32GB | 必須 |
+| gemma3:1b | 4GB | 8GB | 不要 |
+| gemma3:4b | 8GB | 16GB | 推奨 |
+| gemma3:12b | 32GB | 48GB | 必須 |
 
 ### ソフトウェア要件
 
@@ -75,8 +75,8 @@ ollama pull gemma3:1b
 # 中型版（4Bパラメータ）- 推奨
 ollama pull gemma3:4b
 
-# 大型版（27Bパラメータ）
-ollama pull gemma3:27b
+# 大型版（12Bパラメータ）
+ollama pull gemma3:12b
 ```
 
 ### 3. Pythonパッケージのインストール
@@ -156,7 +156,7 @@ article_recommender/
 **1. より大きなモデルを使用（精度向上）**
 ```python
 recommender = LocalArticleRecommenderSystem(
-    gemma_model="gemma3:27b"  # より高精度
+    gemma_model="gemma3:12b"  # より高精度
 )
 ```
 

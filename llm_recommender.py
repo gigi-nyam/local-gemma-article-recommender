@@ -131,7 +131,8 @@ class LocalGemmaRecommender:
     ) -> str:
         """プロンプトを構築（簡潔版）"""
         articles_text = "\n".join([
-            f"ID:{article['id']} [{article['category']}] {article['title']}"
+            # f"ID:{article['id']} {article['title']}"
+            f"ID:{article['id']} [{article['summary']}] {article['title']}"
             for article in candidate_articles
         ])
         
@@ -140,6 +141,7 @@ class LocalGemmaRecommender:
 ユーザークエリ: 「{user_query}」
 
 以下の候補記事から「ついクリックしたくなる」記事を{top_k}件選んでください。
+ただし、入力と似た記事や一般的な人気記事は避けて、この記事を読んだ後で気になりそうな記事に限ってください。
 
 候補記事:
 {articles_text}
@@ -256,8 +258,7 @@ def demo_local_gemma_recommender():
     
     # テストクエリ
     test_queries = [
-        "最新の政治と外交のニュース",
-        "事故や災害の速報",
+        "九州場所で横綱 大の里が熊を投げ倒したという噂は嘘である。九州に熊はいないのだから",
     ]
     
     for test_query in test_queries:

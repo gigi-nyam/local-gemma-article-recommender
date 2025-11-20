@@ -101,7 +101,7 @@ class LocalArticleRecommenderSystem:
         phase2_start = time.time()
         result = self.llm_recommender.recommend_articles(
             user_query=user_query,
-            candidate_articles=candidate_articles,
+            candidate_articles= candidate_articles,
             top_k=self.llm_recommendation_top_k
         )
         phase2_time = time.time() - phase2_start
@@ -163,7 +163,7 @@ def demo_local_recommender_system():
     
     # テストクエリ
     test_queries = [
-        "最新の政治と外交のニュース",
+        "外務省担当局長 中国側と協議し日本側の立場説明か",
         "事故や災害の速報情報",
     ]
     
