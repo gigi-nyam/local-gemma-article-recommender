@@ -181,7 +181,7 @@ class LocalGemmaRecommender:
             api_key = api_key or os.getenv("GEMINI_API_KEY")
             if not api_key:
                 raise ValueError("GEMINI_API_KEYが設定されていません")
-            model = model or "gemini-3-pro-preview"
+            model = model or os.getenv("GEMINI_MODEL", "gemini-3-pro-preview")
             self.llm_provider = GeminiProvider(api_key=api_key, model=model)
             print(f"✓ Geminiプロバイダーを使用 (モデル: {model})")
             
