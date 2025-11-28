@@ -83,13 +83,18 @@ class OllamaProvider(BaseLLMProvider):
 
 class GeminiProvider(BaseLLMProvider):
     """Google Gemini API プロバイダー"""
-    
+
     def __init__(self, api_key: str, model: str = "gemini-3-pro-preview"):
         self.api_key = api_key
         self.model = model
         
         try:
             import google.generativeai as genai
+            from google.generativeai import types
+            
+            self.genai = genai
+            self.types = types
+            
             genai.configure(api_key=api_key)
             self.client = genai.GenerativeModel(model)
             print(f"✓ Gemini API接続成功 (モデル: {model})")
@@ -100,7 +105,40 @@ class GeminiProvider(BaseLLMProvider):
     
     def generate(self, prompt: str, timeout: int = 180) -> str:
         try:
-            response = self.client.generate_content(prompt)
+            from google.generativeai.types import HarmCategory, HarmBlockThreshold
+            
+            response = self.client.generate_content(
+                prompt,
+                generation_config={
+                    "temperature": 0.7,
+                    "max_output_tokens": 2000
+                },
+                safety_settings={
+                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                }
+            )
+            
+            # レスポンスが安全性フィルターでブロックされていないか確認
+            if not response.candidates:
+                raise RuntimeError("Gemini APIが応答を生成できませんでした（安全性フィルターによりブロックされた可能性があります）")
+            
+            candidate = response.candidates[0]
+            # finish_reason: 1=STOP(正常), 2=MAX_TOKENS(トークン上限だが内容は取得可能)
+            if candidate.finish_reason not in [1, 2]:
+                finish_reasons = {
+                    0: "FINISH_REASON_UNSPECIFIED",
+                    1: "STOP",
+                    2: "MAX_TOKENS",
+                    3: "SAFETY",
+                    4: "RECITATION",
+                    5: "OTHER"
+                }
+                reason = finish_reasons.get(candidate.finish_reason, "UNKNOWN")
+                raise RuntimeError(f"Gemini APIが正常に完了しませんでした: finish_reason={reason}")
+            
             return response.text
         except Exception as e:
             raise RuntimeError(f"Gemini API エラー: {e}")
@@ -130,15 +168,16 @@ class OpenAIProvider(BaseLLMProvider):
                 "messages": [
                     {"role": "system", "content": "あなたは記事推薦の専門家です。"},
                     {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.7
+                ]
             }
             
             # モデル名でパラメータを切り替え
             if self.model.startswith("gpt-5") or self.model.startswith("o1") or self.model.startswith("o3"):
                 params["max_completion_tokens"] = 1000
+                # GPT-5系はtemperatureのデフォルト値(1.0)のみサポート
             else:
                 params["max_tokens"] = 1000
+                params["temperature"] = 0.7
             
             response = self.client.chat.completions.create(**params)
             return response.choices[0].message.content
@@ -368,7 +407,7 @@ def demo_local_gemma_recommender():
     
     # テストクエリ
     test_queries = [
-        "九州場所で横綱 大の里が熊を投げ倒したという噂は嘘である。九州に熊はいないのだから",
+        "岩手の住宅地近くでクマ2頭が連日柿の木に出没",
     ]
     
     for test_query in test_queries:
