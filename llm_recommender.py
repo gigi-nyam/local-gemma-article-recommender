@@ -106,13 +106,44 @@ class GeminiProvider(BaseLLMProvider):
     def generate(self, prompt: str, timeout: int = 180) -> str:
         try:
             from google.generativeai.types import HarmCategory, HarmBlockThreshold
+            from google.generativeai import types
+            
+            # 環境変数でthinking_levelを指定可能にする
+            # GEMINI_THINKING_LEVEL=low/medium/high/none で制御
+            thinking_level_env = os.getenv("GEMINI_THINKING_LEVEL", "").lower()
+            thinking_level = None
+            if thinking_level_env and thinking_level_env != "none":
+                thinking_level = thinking_level_env
+            
+            # GenerateContentConfigの設定
+            if thinking_level:
+                try:
+                    config = types.GenerateContentConfig(
+                        temperature=0.7,
+                        max_output_tokens=4000,
+                        thinking_config=types.ThinkingConfig(thinking_level=thinking_level)
+                    )
+                    print(f"  💭 thinking_level={thinking_level} を適用しました")
+                except (TypeError, AttributeError) as e:
+                    # thinking_levelがまだサポートされていない場合は通常の設定を使用
+                    print(f"  ⚠️ thinking_level はサポートされていません（{e}）")
+                    config = types.GenerateContentConfig(
+                        temperature=0.7,
+                        max_output_tokens=4000
+                    )
+            else:
+                config = types.GenerateContentConfig(
+                    temperature=0.7,
+                    max_output_tokens=4000
+                )
+                if thinking_level_env:
+                    print(f"  ℹ️ GEMINI_THINKING_LEVEL={thinking_level_env} (デフォルト動作)")
+                else:
+                    print(f"  ℹ️ thinking_level 未設定（デフォルト動作）")
             
             response = self.client.generate_content(
                 prompt,
-                generation_config={
-                    "temperature": 0.7,
-                    "max_output_tokens": 2000
-                },
+                config=config,
                 safety_settings={
                     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -139,7 +170,11 @@ class GeminiProvider(BaseLLMProvider):
                 reason = finish_reasons.get(candidate.finish_reason, "UNKNOWN")
                 raise RuntimeError(f"Gemini APIが正常に完了しませんでした: finish_reason={reason}")
             
-            return response.text
+            # response.textの代わりに、より安全な方法でテキストを取得
+            if candidate.content and candidate.content.parts:
+                return "".join(part.text for part in candidate.content.parts if hasattr(part, 'text'))
+            else:
+                raise RuntimeError(f"Gemini APIの応答にテキストが含まれていません (finish_reason={candidate.finish_reason})")
         except Exception as e:
             raise RuntimeError(f"Gemini API エラー: {e}")
 
@@ -295,9 +330,9 @@ class LocalGemmaRecommender:
 候補記事:
 {articles_text}
 
-以下のJSON形式で回答してください。
+以下の有効なJSON形式で回答してください。
 重要: titleには記事の簡潔な要約を書いてください（元のタイトルをそのままコピーしない）。
-重要: JSON内では引用符(\"や")を使わないでください。
+重要: 文字列値は必ずダブルクォーテーション（"）で囲んでください。
 
 {{
   "recommendations": [
@@ -306,7 +341,7 @@ class LocalGemmaRecommender:
   "reasoning": "選択方針"
 }}
 
-JSON以外は出力しないでください。"""
+必ず有効なJSON形式で出力してください。JSON以外のテキストは出力しないでください。"""
         
         return prompt
     
