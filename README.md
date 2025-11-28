@@ -40,10 +40,11 @@
 - **対応モデル**: gemma3:1b, gemma3:4b, gemma3:12b など
 
 ### 2. Google Gemini
-- **特徴**: 高速、高精度
+- **特徴**: 高速、高精度、thinking_level制御対応
 - **コスト**: 従量課金（無料枠あり）
 - **速度**: 3-5秒
-- **対応モデル**: gemini-1.5-flash, gemini-1.5-pro など
+- **対応モデル**: gemini-3-pro-preview, gemini-2.5-pro, gemini-2.5-flash など
+- **推論制御**: thinking_level (low/high) でGemini 3 Proの推論レベルを制御可能
 
 ### 3. OpenAI
 - **特徴**: 高精度、豊富なモデル、GPT-5対応
@@ -76,6 +77,8 @@ OLLAMA_MODEL=gemma3:4b
 
 # Gemini設定 (LLM_PROVIDER=gemini の場合)
 GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-3-pro-preview
+GEMINI_THINKING_LEVEL=low  # low/high/none (Gemini 3 Proのみ対応)
 
 # OpenAI設定 (LLM_PROVIDER=openai の場合)
 OPENAI_API_KEY=your_openai_api_key_here
@@ -120,7 +123,7 @@ pip install -r requirements.txt
 
 **requirements.txt に含まれるパッケージ**:
 - `python-dotenv`: 環境変数管理
-- `google-generativeai`: Gemini API（オプション）
+- `google-genai`: Gemini API 新SDK（オプション、thinking_level対応）
 - `openai`: OpenAI API（オプション）
 - その他の基本パッケージ
 
@@ -157,7 +160,7 @@ for rec in result.recommendations:
 # Geminiを使用
 recommender = LocalArticleRecommenderSystem(
     llm_provider="gemini",
-    llm_model="gemini-1.5-flash"
+    llm_model="gemini-3-pro-preview"  # thinking_level対応モデル
 )
 
 # OpenAIを使用（GPT-5.1）
@@ -173,11 +176,40 @@ recommender = LocalArticleRecommenderSystem(
 )
 ```
 
+### Gemini thinking_level の制御
+
+Gemini 3 Pro では推論レベルを制御できます（OpenAIの`instant`モードに相当）：
+
+```bash
+# .envファイルで設定
+GEMINI_THINKING_LEVEL=low   # 高速、軽い推論
+GEMINI_THINKING_LEVEL=high  # 深い推論（デフォルト）
+GEMINI_THINKING_LEVEL=none  # デフォルト動作
+```
+
+```python
+# または環境変数で一時的に変更
+import os
+os.environ['GEMINI_THINKING_LEVEL'] = 'low'
+
+recommender = LocalArticleRecommenderSystem(
+    llm_provider="gemini",
+    llm_model="gemini-3-pro-preview"
+)
+```
+
+**thinking_level の使い分け**:
+- `low`: 簡単なタスク、高速応答が必要な場合
+- `high`: 複雑な推論、高精度が必要な場合（デフォルト）
+
 ### デモの実行
 
 ```bash
 # 完全なデモを実行（.envファイルの設定を使用）
 python article_recommender.py
+
+# thinking_level を一時的に変更して実行
+GEMINI_THINKING_LEVEL=low python article_recommender.py
 
 # 個別コンポーネントのテスト
 python llm_recommender.py  # LLM推薦のみ
@@ -303,8 +335,10 @@ recommender = LocalGemmaRecommender(
 - 温度パラメータ: 0.7、最大トークン数: 1000
 
 **Gemini**:
-- `google.generativeai`ライブラリ使用
-- シンプルな`generate_content()`メソッド
+- `google-genai`ライブラリ使用（新SDK、v1.52.0+）
+- `client.models.generate_content()`メソッド
+- `thinking_level`パラメータでGemini 3 Proの推論レベル制御（low/high）
+- 環境変数`GEMINI_THINKING_LEVEL`で制御可能
 - 自動的にJSON形式の応答をパース
 
 **OpenAI**:
@@ -435,6 +469,12 @@ def recommend_async(user_query):
 
 ## 📈 バージョン履歴
 
+### v2.1.0 (2025年11月28日)
+- ✨ **google-genai SDK移行**: 新しい公式SDK (v1.52.0) に移行
+- ✨ **thinking_level対応**: Gemini 3 Proで推論レベル制御が可能に（low/high）
+- 🔧 **API簡素化**: 新SDKにより応答処理がシンプルに（62行削減）
+- 📚 **ドキュメント更新**: thinking_level機能の使用方法を追加
+
 ### v2.0.0 (2025年11月27日)
 - ✨ **マルチLLMプロバイダー対応**: Ollama、Gemini、OpenAIの3つのプロバイダーをサポート
 - ✨ **GPT-5対応**: GPT-5.1、o1、o3シリーズの新パラメータに対応
@@ -475,4 +515,5 @@ Issue、Pull Requestを歓迎します！
 
 - 初回作成: 2025年11月18日
 - マルチLLM対応: 2025年11月20日
-- 最終更新: 2025年11月27日
+- google-genai SDK移行: 2025年11月28日
+- 最終更新: 2025年11月28日
