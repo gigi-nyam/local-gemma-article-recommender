@@ -88,49 +88,35 @@ class GeminiProvider(BaseLLMProvider):
         self.api_key = api_key
         self.model = model
         
+        # google-genai (新しいSDK) のインポートと初期化
         try:
-            import google.generativeai as genai
-            from google.generativeai import types
-            
-            self.genai = genai
-            self.types = types
-            
-            genai.configure(api_key=api_key)
-            self.client = genai.GenerativeModel(model)
-            print(f"✓ Gemini API接続成功 (モデル: {model})")
+            from google import genai
+            self.client = genai.Client(api_key=api_key)
+            print(f"✓ Gemini API接続成功 (モデル: {model}) [google-genai SDK]")
         except ImportError:
-            raise ImportError("google-generativeaiパッケージが必要です: pip install google-generativeai")
+            raise ImportError("google-genaiパッケージが必要です: pip install google-genai")
         except Exception as e:
             print(f"警告: Gemini API初期化エラー: {e}")
     
     def generate(self, prompt: str, timeout: int = 180) -> str:
         try:
-            from google.generativeai.types import HarmCategory, HarmBlockThreshold
-            from google.generativeai import types
+            from google.genai import types
             
             # 環境変数でthinking_levelを指定可能にする
-            # GEMINI_THINKING_LEVEL=low/medium/high/none で制御
+            # GEMINI_THINKING_LEVEL=low/high で制御（Gemini 3 Pro）
             thinking_level_env = os.getenv("GEMINI_THINKING_LEVEL", "").lower()
             thinking_level = None
-            if thinking_level_env and thinking_level_env != "none":
+            if thinking_level_env in ["low", "high"]:
                 thinking_level = thinking_level_env
             
             # GenerateContentConfigの設定
             if thinking_level:
-                try:
-                    config = types.GenerateContentConfig(
-                        temperature=0.7,
-                        max_output_tokens=4000,
-                        thinking_config=types.ThinkingConfig(thinking_level=thinking_level)
-                    )
-                    print(f"  💭 thinking_level={thinking_level} を適用しました")
-                except (TypeError, AttributeError) as e:
-                    # thinking_levelがまだサポートされていない場合は通常の設定を使用
-                    print(f"  ⚠️ thinking_level はサポートされていません（{e}）")
-                    config = types.GenerateContentConfig(
-                        temperature=0.7,
-                        max_output_tokens=4000
-                    )
+                config = types.GenerateContentConfig(
+                    temperature=0.7,
+                    max_output_tokens=4000,
+                    thinking_config=types.ThinkingConfig(thinking_level=thinking_level)
+                )
+                print(f"  💭 thinking_level={thinking_level} を適用しました")
             else:
                 config = types.GenerateContentConfig(
                     temperature=0.7,
@@ -141,40 +127,14 @@ class GeminiProvider(BaseLLMProvider):
                 else:
                     print(f"  ℹ️ thinking_level 未設定（デフォルト動作）")
             
-            response = self.client.generate_content(
-                prompt,
-                config=config,
-                safety_settings={
-                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-                }
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config=config
             )
             
-            # レスポンスが安全性フィルターでブロックされていないか確認
-            if not response.candidates:
-                raise RuntimeError("Gemini APIが応答を生成できませんでした（安全性フィルターによりブロックされた可能性があります）")
-            
-            candidate = response.candidates[0]
-            # finish_reason: 1=STOP(正常), 2=MAX_TOKENS(トークン上限だが内容は取得可能)
-            if candidate.finish_reason not in [1, 2]:
-                finish_reasons = {
-                    0: "FINISH_REASON_UNSPECIFIED",
-                    1: "STOP",
-                    2: "MAX_TOKENS",
-                    3: "SAFETY",
-                    4: "RECITATION",
-                    5: "OTHER"
-                }
-                reason = finish_reasons.get(candidate.finish_reason, "UNKNOWN")
-                raise RuntimeError(f"Gemini APIが正常に完了しませんでした: finish_reason={reason}")
-            
-            # response.textの代わりに、より安全な方法でテキストを取得
-            if candidate.content and candidate.content.parts:
-                return "".join(part.text for part in candidate.content.parts if hasattr(part, 'text'))
-            else:
-                raise RuntimeError(f"Gemini APIの応答にテキストが含まれていません (finish_reason={candidate.finish_reason})")
+            # response.text を使用（google-genai では安全に使用可能）
+            return response.text
         except Exception as e:
             raise RuntimeError(f"Gemini API エラー: {e}")
 
