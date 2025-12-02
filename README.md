@@ -26,7 +26,9 @@
     ↓
 [フェーズ2] LLM推薦
     - Ollama/Gemini/OpenAIで推論
-    - 「ついクリックしたくなる」記事を3件選択
+    - プロンプトタイプで評価基準を切り替え
+      - clickbait: 「ついクリックしたくなる」記事を選択
+      - satisfaction: 「読了満足度の高い」記事を選択
     ↓
 推薦結果
 ```
@@ -83,6 +85,11 @@ GEMINI_THINKING_LEVEL=low  # low/high/none (Gemini 3 Proのみ対応)
 # OpenAI設定 (LLM_PROVIDER=openai の場合)
 OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_MODEL=gpt-5.1  # または gpt-4o, o1-preview など
+
+# プロンプトタイプ (評価基準の選択)
+# Options: clickbait, satisfaction
+PROMPT_TYPE=satisfaction  # 読了満足度重視（デフォルト）
+# PROMPT_TYPE=clickbait   # クリック誘引度重視
 ```
 
 ### 2. Ollama使用時の追加セットアップ
@@ -202,6 +209,28 @@ recommender = LocalArticleRecommenderSystem(
 - `low`: 簡単なタスク、高速応答が必要な場合
 - `high`: 複雑な推論、高精度が必要な場合（デフォルト）
 
+### プロンプトタイプの切り替え
+
+記事推薦の評価基準を環境変数で切り替えられます：
+
+```bash
+# .envファイルで設定
+PROMPT_TYPE=satisfaction  # 読了満足度重視（デフォルト）
+PROMPT_TYPE=clickbait     # クリック誘引度重視
+```
+
+```powershell
+# または環境変数で一時的に変更
+$env:PROMPT_TYPE="clickbait"; python article_recommender.py
+```
+
+**プロンプトタイプの違い**:
+
+| タイプ | 評価基準 | 出力スコア |
+|------|---------|-------------|
+| `clickbait` | クリック誘引度重視 | clickbait_score のみ |
+| `satisfaction` | 読了満足度重視 | clickbait_score, read_satisfaction_score, continuation_intent_score |
+
 ### デモの実行
 
 ```bash
@@ -210,6 +239,10 @@ python article_recommender.py
 
 # thinking_level を一時的に変更して実行
 GEMINI_THINKING_LEVEL=low python article_recommender.py
+
+# プロンプトタイプを一時的に変更して実行
+$env:PROMPT_TYPE="clickbait"; python article_recommender.py  # Windows PowerShell
+PROMPT_TYPE=clickbait python article_recommender.py           # Linux/macOS
 
 # 個別コンポーネントのテスト
 python llm_recommender.py  # LLM推薦のみ
@@ -469,6 +502,13 @@ def recommend_async(user_query):
 
 ## 📈 バージョン履歴
 
+### v2.2.0 (2025年12月2日)
+- ✨ **プロンプトタイプ切り替え**: `PROMPT_TYPE`環境変数で評価基準を切り替え可能
+  - `clickbait`: クリック誘引度重視（clickbait_scoreのみ）
+  - `satisfaction`: 読了満足度重視（3つのスコア）
+- ✨ **3つの評価スコア**: read_satisfaction_score, continuation_intent_scoreを追加
+- 📚 **ドキュメント更新**: PROMPT_TYPE機能の使用方法を追加
+
 ### v2.1.0 (2025年11月28日)
 - ✨ **google-genai SDK移行**: 新しい公式SDK (v1.52.0) に移行
 - ✨ **thinking_level対応**: Gemini 3 Proで推論レベル制御が可能に（low/high）
@@ -516,4 +556,5 @@ Issue、Pull Requestを歓迎します！
 - 初回作成: 2025年11月18日
 - マルチLLM対応: 2025年11月20日
 - google-genai SDK移行: 2025年11月28日
-- 最終更新: 2025年11月28日
+- PROMPT_TYPE対応: 2025年12月2日
+- 最終更新: 2025年12月2日

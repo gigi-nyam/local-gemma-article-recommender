@@ -22,6 +22,8 @@ class ArticleRecommendation(BaseModel):
     title: str
     reason: str
     clickbait_score: float  # 0-1のスコア
+    read_satisfaction_score: Optional[float] = None  # 読了後の満足度予測
+    continuation_intent_score: Optional[float] = None  # 次も読みたくなる度合い
 
 
 class RecommendationResult(BaseModel):
@@ -273,14 +275,17 @@ class LocalGemmaRecommender:
         candidate_articles: List[Dict],
         top_k: int
     ) -> str:
-        """プロンプトを構築（簡潔版）"""
+        """プロンプトを構築（PROMPT_TYPEに応じて切り替え）"""
         articles_text = "\n".join([
-            # f"ID:{article['id']} {article['title']}"
             f"ID:{article['id']} [{article['summary']}] {article['title']}"
             for article in candidate_articles
         ])
         
-        prompt = f"""あなたは記事推薦の専門家です。
+        prompt_type = os.getenv("PROMPT_TYPE", "satisfaction").lower()
+        
+        if prompt_type == "clickbait":
+            # クリック誘引度重視のプロンプト
+            return f"""あなたは記事推薦の専門家です。
 
 ユーザークエリ: 「{user_query}」
 
@@ -302,8 +307,41 @@ class LocalGemmaRecommender:
 }}
 
 必ず有効なJSON形式で出力してください。JSON以外のテキストは出力しないでください。"""
-        
-        return prompt
+        else:
+            # 読了満足度重視のプロンプト（デフォルト）
+            return f"""あなたは記事推薦の専門家です。
+
+ユーザークエリ: 「{user_query}」
+
+以下の候補記事から、読了後に満足度が高く、次も読みたくなる記事を{top_k}件選んでください。
+
+評価基準:
+1. clickbait_score: クリックしたくなる度合い（0-1）
+2. read_satisfaction_score: 読了後の満足度予測（0-1）
+   - タイトルと内容の一致度
+   - 情報の深さと質
+3. continuation_intent_score: 次も読みたくなる度合い（0-1）
+   - 新たな疑問や興味を喚起するか
+   - 関連トピックへの自然な導線
+
+候補記事:
+{articles_text}
+
+JSON形式で回答してください:
+{{
+  "recommendations": [
+    {{
+      "article_id": 2,
+      "title": "記事の要約",
+      "reason": "選択理由",
+      "clickbait_score": 0.85,
+      "read_satisfaction_score": 0.90,
+      "continuation_intent_score": 0.88
+    }}
+  ],
+  "reasoning": "選択方針"
+}}
+"""
     
     def _parse_response(
         self,
@@ -353,7 +391,9 @@ class LocalGemmaRecommender:
                         article_id=article_id,
                         title=rec.get('title', article['title']),
                         reason=rec.get('reason', ''),
-                        clickbait_score=rec.get('clickbait_score', 0.5)
+                        clickbait_score=rec.get('clickbait_score', 0.5),
+                        read_satisfaction_score=rec.get('read_satisfaction_score'),
+                        continuation_intent_score=rec.get('continuation_intent_score')
                     ))
             
             return RecommendationResult(
@@ -414,7 +454,11 @@ def demo_local_gemma_recommender():
         candidate_articles = SAMPLE_ARTICLES
         
         print(f"候補記事数: {len(candidate_articles)}件（上位10件に絞り込み）")
-        print(f"{recommender.provider_name}で「ついクリックしたくなる」記事を3件選択中...")
+        prompt_type = os.getenv("PROMPT_TYPE", "satisfaction").lower()
+        if prompt_type == "clickbait":
+            print(f"{recommender.provider_name}で「ついクリックしたくなる」記事を3件選択中...")
+        else:
+            print(f"{recommender.provider_name}で「読了満足度の高い」記事を3件選択中...")
         print()
         
         # 推薦を実行
@@ -437,6 +481,10 @@ def demo_local_gemma_recommender():
         for i, rec in enumerate(result.recommendations, 1):
             print(f"{i}. {rec.title}")
             print(f"   クリック誘引度: {rec.clickbait_score:.2f}")
+            if rec.read_satisfaction_score is not None:
+                print(f"   読了満足度: {rec.read_satisfaction_score:.2f}")
+            if rec.continuation_intent_score is not None:
+                print(f"   継続意向度: {rec.continuation_intent_score:.2f}")
             print(f"   選択理由: {rec.reason}")
             print()
         

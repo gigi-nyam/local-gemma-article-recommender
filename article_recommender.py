@@ -3,6 +3,7 @@
 ベクトル検索 + ローカルGemma推薦の2段階パイプライン
 """
 
+import os
 import time
 from typing import List, Dict
 from vector_search import ArticleVectorSearch
@@ -96,7 +97,11 @@ class LocalArticleRecommenderSystem:
             print(f"  {i}. [{score:.3f}] {article['title']}")
         
         # フェーズ2: LLM推薦
-        print(f"\n【フェーズ2】ローカルGemmaで「ついクリックしたくなる」記事を{self.llm_recommendation_top_k}件選択")
+        prompt_type = os.getenv("PROMPT_TYPE", "satisfaction").lower()
+        if prompt_type == "clickbait":
+            print(f"\n【フェーズ2】ローカルGemmaで「ついクリックしたくなる」記事を{self.llm_recommendation_top_k}件選択")
+        else:
+            print(f"\n【フェーズ2】ローカルGemmaで「読了満足度の高い」記事を{self.llm_recommendation_top_k}件選択")
         print("-" * 60)
         
         phase2_start = time.time()
@@ -119,6 +124,10 @@ class LocalArticleRecommenderSystem:
         for i, rec in enumerate(result.recommendations, 1):
             print(f"{i}. {rec.title}")
             print(f"   クリック誘引度: {rec.clickbait_score:.2f}")
+            if rec.read_satisfaction_score is not None:
+                print(f"   読了満足度: {rec.read_satisfaction_score:.2f}")
+            if rec.continuation_intent_score is not None:
+                print(f"   継続意向度: {rec.continuation_intent_score:.2f}")
             print(f"   選択理由: {rec.reason}")
             print()
         
