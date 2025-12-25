@@ -16,7 +16,7 @@ class LocalArticleRecommenderSystem:
     def __init__(
         self,
         vector_search_top_k: int = 100,
-        llm_recommendation_top_k: int = 3,
+        llm_recommendation_top_k: int = 5,
         llm_provider: str = None,
         llm_model: str = None
     ):
@@ -97,11 +97,13 @@ class LocalArticleRecommenderSystem:
             print(f"  {i}. [{score:.3f}] {article['title']}")
         
         # フェーズ2: LLM推薦
+        clickbait_count = max(1, self.llm_recommendation_top_k - 2)
         prompt_type = os.getenv("PROMPT_TYPE", "satisfaction").lower()
+        provider_name = self.llm_recommender.provider_name
         if prompt_type == "clickbait":
-            print(f"\n【フェーズ2】ローカルGemmaで「ついクリックしたくなる」記事を{self.llm_recommendation_top_k}件選択")
+            print(f"\n【フェーズ2】{provider_name}で「ついクリックしたくなる」記事を{clickbait_count}件 + セレンディピティ記事2件選択")
         else:
-            print(f"\n【フェーズ2】ローカルGemmaで「読了満足度の高い」記事を{self.llm_recommendation_top_k}件選択")
+            print(f"\n【フェーズ2】{provider_name}で「読了満足度の高い」記事を{clickbait_count}件 + セレンディピティ記事2件選択")
         print("-" * 60)
         
         phase2_start = time.time()
@@ -121,15 +123,29 @@ class LocalArticleRecommenderSystem:
         print(f"選択方針: {result.reasoning}")
         print()
         
-        for i, rec in enumerate(result.recommendations, 1):
-            print(f"{i}. {rec.title}")
-            print(f"   クリック誘引度: {rec.clickbait_score:.2f}")
-            if rec.read_satisfaction_score is not None:
-                print(f"   読了満足度: {rec.read_satisfaction_score:.2f}")
-            if rec.continuation_intent_score is not None:
-                print(f"   継続意向度: {rec.continuation_intent_score:.2f}")
-            print(f"   選択理由: {rec.reason}")
-            print()
+        # 通常記事とセレンディピティ記事を分けて表示
+        normal_recs = [rec for rec in result.recommendations if not rec.is_serendipity]
+        serendipity_recs = [rec for rec in result.recommendations if rec.is_serendipity]
+        
+        if normal_recs:
+            print("\n--- クリック誘引記事 ---")
+            for i, rec in enumerate(normal_recs, 1):
+                print(f"{i}. {rec.title}")
+                print(f"   クリック誘引度: {rec.clickbait_score:.2f}")
+                if rec.read_satisfaction_score is not None:
+                    print(f"   読了満足度: {rec.read_satisfaction_score:.2f}")
+                if rec.continuation_intent_score is not None:
+                    print(f"   継続意向度: {rec.continuation_intent_score:.2f}")
+                print(f"   選択理由: {rec.reason}")
+                print()
+        
+        if serendipity_recs:
+            print("\n--- セレンディピティ記事 ---")
+            for i, rec in enumerate(serendipity_recs, 1):
+                print(f"{i}. {rec.title}")
+                print(f"   セレンディピティスコア: {rec.clickbait_score:.2f}")
+                print(f"   セレンディピティ理由: {rec.serendipity_reason}")
+                print()
         
         total_time = time.time() - start_time
         print(f"総処理時間: {total_time:.3f}秒")
@@ -160,7 +176,7 @@ def demo_local_recommender_system():
     # システムを初期化 (環境変数から設定を読み込み)
     recommender = LocalArticleRecommenderSystem(
         vector_search_top_k=10,  # デモ用に少なめ
-        llm_recommendation_top_k=3
+        llm_recommendation_top_k=int(os.getenv("LLM_RECOMMENDATION_TOP_K", "5"))
     )
     
     # 記事データを読み込み

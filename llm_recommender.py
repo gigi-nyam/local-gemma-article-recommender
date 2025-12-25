@@ -24,6 +24,8 @@ class ArticleRecommendation(BaseModel):
     clickbait_score: float  # 0-1のスコア
     read_satisfaction_score: Optional[float] = None  # 読了後の満足度予測
     continuation_intent_score: Optional[float] = None  # 次も読みたくなる度合い
+    is_serendipity: bool = False  # セレンディピティ記事かどうか
+    serendipity_reason: Optional[str] = None  # セレンディピティ選択理由
 
 
 class RecommendationResult(BaseModel):
@@ -239,12 +241,13 @@ class LocalGemmaRecommender:
         top_k: int = 3
     ) -> RecommendationResult:
         """
-        候補記事から「ついクリックしたくなる」記事を選択
+        候補記事から「ついクリックしたくなる」記事(top_k-2件)と
+        セレンディピティ記事(2件)を選択
         
         Args:
             user_query: ユーザーの検索クエリ
             candidate_articles: 候補記事のリスト
-            top_k: 推薦する記事数
+            top_k: 推薦する記事数（クリック誘引: top_k-2件 + セレンディピティ: 2件）
             
         Returns:
             推薦結果
@@ -252,22 +255,195 @@ class LocalGemmaRecommender:
         # 候補記事を絞り込む（プロンプトが長すぎるため）
         limited_candidates = candidate_articles[:min(10, len(candidate_articles))]
         
-        # プロンプトを構築
-        prompt = self._build_prompt(user_query, limited_candidates, top_k)
+        # クリック誘引記事の件数（最低1件）
+        clickbait_count = max(1, top_k - 2)
         
-        # LLM APIで推論を実行
+        # プロンプトを構築（クリック誘引記事用）
+        prompt = self._build_prompt(user_query, limited_candidates, clickbait_count)
+        
+        # LLM APIで推論を実行（クリック誘引記事）
         try:
             response_text = self.llm_provider.generate(prompt)
             
             # レスポンスをパース
-            result = self._parse_response(response_text, limited_candidates)
+            clickbait_result = self._parse_response(response_text, limited_candidates)
             
-            return result
+            # 選択されたクリック誘引記事のIDを取得
+            selected_ids = [rec.article_id for rec in clickbait_result.recommendations]
+            
+            # セレンディピティ記事を選択
+            serendipity_result = self._recommend_serendipity_articles(
+                user_query=user_query,
+                candidate_articles=limited_candidates,
+                exclude_ids=selected_ids,
+                count=2
+            )
+            
+            # 結果を統合
+            all_recommendations = clickbait_result.recommendations + serendipity_result.recommendations
+            
+            combined_reasoning = (
+                f"【クリック誘引記事】{clickbait_result.reasoning}\n"
+                f"【セレンディピティ記事】{serendipity_result.reasoning}"
+            )
+            
+            return RecommendationResult(
+                recommendations=all_recommendations,
+                reasoning=combined_reasoning
+            )
             
         except Exception as e:
             print(f"エラーが発生しました: {e}")
             # フォールバック: 最初のtop_k件を返す
             return self._fallback_recommendation(limited_candidates, top_k)
+    
+    def _recommend_serendipity_articles(
+        self,
+        user_query: str,
+        candidate_articles: List[Dict],
+        exclude_ids: List[int],
+        count: int = 2
+    ) -> RecommendationResult:
+        """
+        セレンディピティ性の高い記事を選択
+        
+        Args:
+            user_query: ユーザーの検索クエリ
+            candidate_articles: 候補記事のリスト
+            exclude_ids: 除外する記事IDのリスト
+            count: 選択する記事数
+            
+        Returns:
+            セレンディピティ推薦結果
+        """
+        # 除外した候補記事リストを作成
+        filtered_candidates = [
+            article for article in candidate_articles
+            if article['id'] not in exclude_ids
+        ]
+        
+        if len(filtered_candidates) == 0:
+            return RecommendationResult(
+                recommendations=[],
+                reasoning="セレンディピティ記事の候補がありません"
+            )
+        
+        # セレンディピティ用プロンプトを構築
+        prompt = self._build_serendipity_prompt(user_query, filtered_candidates, count)
+        
+        try:
+            response_text = self.llm_provider.generate(prompt)
+            result = self._parse_serendipity_response(response_text, filtered_candidates)
+            return result
+        except Exception as e:
+            print(f"セレンディピティ記事選択でエラーが発生: {e}")
+            return RecommendationResult(
+                recommendations=[],
+                reasoning="セレンディピティ記事の選択に失敗しました"
+            )
+    
+    def _build_serendipity_prompt(
+        self,
+        user_query: str,
+        candidate_articles: List[Dict],
+        count: int
+    ) -> str:
+        """セレンディピティ記事選択用プロンプトを構築"""
+        articles_text = "\n".join([
+            f"ID:{article['id']} [{article['summary']}] {article['title']}"
+            for article in candidate_articles
+        ])
+        
+        return f"""あなたは記事推薦の専門家です。
+
+【タスク説明】
+セレンディピティとは、ユーザーにとって「予期せぬ」かつ「関連性のある」発見のことです。
+
+- 予期せぬ（Unexpectedness）：ユーザーの今読んだ記事からは、直接推奨される可能性が低いアイテムであることを意味します。
+- 関連性（Relevance）：ユーザーの今読んだ記事への（暗黙的な）興味に密接に関連していることを意味します。
+
+あるアイテムがセレンディピティであるためには、これら両方の条件を満たしている必要があります。
+必ず{count}件の記事を選択し、各記事についてセレンディピティ選択理由を明確に説明してください。
+
+ユーザーが読んだ記事: 「{user_query}」
+
+候補記事:
+{articles_text}
+
+以下の有効なJSON形式で回答してください:
+{{
+  "recommendations": [
+    {{
+      "article_id": 2,
+      "title": "記事の要約",
+      "serendipity_reason": "セレンディピティ選択理由（予期せぬ点と関連性を説明）",
+      "unexpectedness_score": 0.85,
+      "relevance_score": 0.75
+    }}
+  ],
+  "reasoning": "全体的なセレンディピティ選択方針"
+}}
+
+必ず有効なJSON形式で出力してください。JSON以外のテキストは出力しないでください。"""
+    
+    def _parse_serendipity_response(
+        self,
+        response_text: str,
+        candidate_articles: List[Dict]
+    ) -> RecommendationResult:
+        """セレンディピティレスポンスをパース"""
+        try:
+            # JSONブロックを抽出
+            json_match = re.search(r'```json\s*\n(.+?)\n```', response_text, re.DOTALL)
+            if json_match:
+                json_text = json_match.group(1)
+            else:
+                json_match = re.search(r'\{.*"recommendations".*\}', response_text, re.DOTALL)
+                if json_match:
+                    json_text = json_match.group(0)
+                else:
+                    json_text = response_text.strip()
+            
+            json_text = json_text.strip()
+            
+            if not json_text.endswith('}'):
+                last_brace = json_text.rfind('}')
+                if last_brace > 0:
+                    json_text = json_text[:last_brace + 1]
+            
+            json_text = re.sub(r'\}\s*\n\s*\{', '},\n{', json_text)
+            
+            data = json.loads(json_text)
+            
+            recommendations = []
+            for rec in data.get('recommendations', []):
+                article_id = rec.get('article_id')
+                article = next((a for a in candidate_articles if a['id'] == article_id), None)
+                
+                if article:
+                    # セレンディピティスコアを計算（予期せぬ度と関連性の調和平均）
+                    unexpectedness = rec.get('unexpectedness_score', 0.5)
+                    relevance = rec.get('relevance_score', 0.5)
+                    serendipity_score = 2 * unexpectedness * relevance / (unexpectedness + relevance) if (unexpectedness + relevance) > 0 else 0
+                    
+                    recommendations.append(ArticleRecommendation(
+                        article_id=article_id,
+                        title=rec.get('title', article['title']),
+                        reason=rec.get('serendipity_reason', ''),
+                        clickbait_score=serendipity_score,
+                        is_serendipity=True,
+                        serendipity_reason=rec.get('serendipity_reason', '')
+                    ))
+            
+            return RecommendationResult(
+                recommendations=recommendations,
+                reasoning=data.get('reasoning', '')
+            )
+            
+        except Exception as e:
+            print(f"セレンディピティレスポンスのパースに失敗: {e}")
+            print(f"レスポンス内容（最初の500文字）: {response_text[:500]}")
+            raise
     
     def _build_prompt(
         self,
@@ -454,11 +630,13 @@ def demo_local_gemma_recommender():
         candidate_articles = SAMPLE_ARTICLES
         
         print(f"候補記事数: {len(candidate_articles)}件（上位10件に絞り込み）")
+        top_k = int(os.getenv("LLM_RECOMMENDATION_TOP_K", "5"))
+        clickbait_count = max(1, top_k - 2)
         prompt_type = os.getenv("PROMPT_TYPE", "satisfaction").lower()
         if prompt_type == "clickbait":
-            print(f"{recommender.provider_name}で「ついクリックしたくなる」記事を3件選択中...")
+            print(f"{recommender.provider_name}で「ついクリックしたくなる」記事を{clickbait_count}件 + セレンディピティ記事2件選択中...")
         else:
-            print(f"{recommender.provider_name}で「読了満足度の高い」記事を3件選択中...")
+            print(f"{recommender.provider_name}で「読了満足度の高い」記事を{clickbait_count}件 + セレンディピティ記事2件選択中...")
         print()
         
         # 推薦を実行
@@ -468,7 +646,7 @@ def demo_local_gemma_recommender():
         result = recommender.recommend_articles(
             user_query=test_query,
             candidate_articles=candidate_articles,
-            top_k=3
+            top_k=int(os.getenv("LLM_RECOMMENDATION_TOP_K", "5"))
         )
         
         elapsed_time = time.time() - start_time
