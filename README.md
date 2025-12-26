@@ -7,6 +7,7 @@
 - **3つのLLMプロバイダーに対応**: Ollama、Gemini、OpenAIを環境変数で簡単切り替え
 - **最新モデル対応**: GPT-5.1、Gemini 3、Gemma 3など最新モデルをサポート
 - **2段階推薦アーキテクチャ**: ベクトル検索 + LLM評価で高精度推薦
+- **セレンディピティ推薦**: 「予期せぬ」かつ「関連性のある」記事を自動推薦
 - **柔軟な設定**: 環境変数またはコード内で簡単に設定変更可能
 - **プライバシー重視**: Ollama使用時は完全ローカル実行
 - **本番環境対応**: Webアプリケーション統合、非同期処理をサポート
@@ -29,8 +30,10 @@
     - プロンプトタイプで評価基準を切り替え
       - clickbait: 「ついクリックしたくなる」記事を選択
       - satisfaction: 「読了満足度の高い」記事を選択
+    - セレンディピティ推薦
+      - 「予期せぬ」かつ「関連性のある」記事を2件自動選択
     ↓
-推薦結果
+推薦結果（クリック誘引記事 + セレンディピティ記事）
 ```
 
 ## 対応LLMプロバイダー
@@ -90,6 +93,9 @@ OPENAI_MODEL=gpt-5.1  # または gpt-4o, o1-preview など
 # Options: clickbait, satisfaction
 PROMPT_TYPE=satisfaction  # 読了満足度重視（デフォルト）
 # PROMPT_TYPE=clickbait   # クリック誘引度重視
+
+# 推薦件数の設定
+LLM_RECOMMENDATION_TOP_K=5  # 推薦する記事の総数（クリック誘引: top_k-2件 + セレンディピティ: 2件）
 ```
 
 ### 2. Ollama使用時の追加セットアップ
@@ -145,7 +151,7 @@ from sample_articles import SAMPLE_ARTICLES
 # システムを初期化（環境変数から設定を読み込み）
 recommender = LocalArticleRecommenderSystem(
     vector_search_top_k=10,
-    llm_recommendation_top_k=3
+    llm_recommendation_top_k=5  # クリック誘引3件 + セレンディピティ2件 = 合計5件
 )
 
 # 記事データを読み込み
@@ -154,9 +160,13 @@ recommender.fit(SAMPLE_ARTICLES)
 # 推薦を実行
 result = recommender.recommend("最新の政治ニュース")
 
-# 結果を表示
+# 結果を表示（クリック誘引記事とセレンディピティ記事が分かれて返却）
 for rec in result.recommendations:
-    print(f"{rec.title} (スコア: {rec.clickbait_score})")
+    if rec.is_serendipity:
+        print(f"【セレンディピティ】{rec.title} (スコア: {rec.clickbait_score:.2f})")
+        print(f"  理由: {rec.serendipity_reason}")
+    else:
+        print(f"【クリック誘引】{rec.title} (スコア: {rec.clickbait_score:.2f})")
 ```
 
 ### プロバイダーを直接指定
@@ -230,6 +240,18 @@ $env:PROMPT_TYPE="clickbait"; python article_recommender.py
 |------|---------|-------------|
 | `clickbait` | クリック誘引度重視 | clickbait_score のみ |
 | `satisfaction` | 読了満足度重視 | clickbait_score, read_satisfaction_score, continuation_intent_score |
+
+**セレンディピティ推薦**:
+
+セレンディピティとは、ユーザーにとって「予期せぬ」かつ「関連性のある」発見のことです。推薦結果には常に2件のセレンディピティ記事が含まれます。
+
+- **予期せぬ（Unexpectedness）**: ユーザーの今読んだ記事からは直接推奨される可能性が低い
+- **関連性（Relevance）**: ユーザーの暗黙的な興味に密接に関連している
+
+| 推薦タイプ | 件数 | 出力フィールド |
+|------------|------|------------------|
+| クリック誘引記事 | top_k - 2 | clickbait_score, reason |
+| セレンディピティ記事 | 2 | is_serendipity, serendipity_reason, clickbait_score(セレンディピティスコア) |
 
 ### デモの実行
 

@@ -362,7 +362,8 @@ class LocalGemmaRecommender:
 - 予期せぬ（Unexpectedness）：ユーザーの今読んだ記事からは、直接推奨される可能性が低いアイテムであることを意味します。
 - 関連性（Relevance）：ユーザーの今読んだ記事への（暗黙的な）興味に密接に関連していることを意味します。
 
-あるアイテムがセレンディピティであるためには、これら両方の条件を満たしている必要があります。
+あるアイテムがセレンディピティであるためには、これら両方の条件を満たしている必要
+があります。
 必ず{count}件の記事を選択し、各記事についてセレンディピティ選択理由を明確に説明してください。
 
 ユーザーが読んだ記事: 「{user_query}」
@@ -656,15 +657,29 @@ def demo_local_gemma_recommender():
         print(f"選択方針: {result.reasoning}")
         print()
         
-        for i, rec in enumerate(result.recommendations, 1):
-            print(f"{i}. {rec.title}")
-            print(f"   クリック誘引度: {rec.clickbait_score:.2f}")
-            if rec.read_satisfaction_score is not None:
-                print(f"   読了満足度: {rec.read_satisfaction_score:.2f}")
-            if rec.continuation_intent_score is not None:
-                print(f"   継続意向度: {rec.continuation_intent_score:.2f}")
-            print(f"   選択理由: {rec.reason}")
-            print()
+        # 通常記事とセレンディピティ記事を分けて表示
+        normal_recs = [rec for rec in result.recommendations if not rec.is_serendipity]
+        serendipity_recs = [rec for rec in result.recommendations if rec.is_serendipity]
+        
+        if normal_recs:
+            print("\n--- クリック誘引記事 ---")
+            for i, rec in enumerate(normal_recs, 1):
+                print(f"{i}. {rec.title}")
+                print(f"   クリック誘引度: {rec.clickbait_score:.2f}")
+                if rec.read_satisfaction_score is not None:
+                    print(f"   読了満足度: {rec.read_satisfaction_score:.2f}")
+                if rec.continuation_intent_score is not None:
+                    print(f"   継続意向度: {rec.continuation_intent_score:.2f}")
+                print(f"   選択理由: {rec.reason}")
+                print()
+        
+        if serendipity_recs:
+            print("\n--- セレンディピティ記事 ---")
+            for i, rec in enumerate(serendipity_recs, 1):
+                print(f"{i}. {rec.title}")
+                print(f"   セレンディピティスコア: {rec.clickbait_score:.2f}")
+                print(f"   セレンディピティ理由: {rec.serendipity_reason}")
+                print()
         
         print(f"処理時間: {elapsed_time:.2f}秒")
         print()
